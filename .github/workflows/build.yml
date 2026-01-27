@@ -1,0 +1,118 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macOS
+            artifact: SSH-Connector-macOS
+            build_cmd: |
+              pyinstaller \
+                --name "SSH Connector" \
+                --windowed \
+                --onedir \
+                --add-data "config:config" \
+                --hidden-import "paramiko" \
+                --hidden-import "PyQt6" \
+                src/main.py
+              cd dist && zip -r "../SSH-Connector-macOS.zip" "SSH Connector.app"
+
+          - os: windows-latest
+            name: Windows
+            artifact: SSH-Connector-Windows
+            build_cmd: |
+              pyinstaller `
+                --name "SSH Connector" `
+                --windowed `
+                --onefile `
+                --add-data "config;config" `
+                --hidden-import "paramiko" `
+                --hidden-import "PyQt6" `
+                src/main.py
+              Compress-Archive -Path "dist\SSH Connector.exe" -DestinationPath "SSH-Connector-Windows.zip"
+
+          - os: ubuntu-latest
+            name: Linux
+            artifact: SSH-Connector-Linux
+            build_cmd: |
+              pyinstaller \
+                --name "ssh-connector" \
+                --onefile \
+                --add-data "config:config" \
+                --hidden-import "paramiko" \
+                --hidden-import "PyQt6" \
+                src/main.py
+              cd dist && tar -czvf "../SSH-Connector-Linux.tar.gz" ssh-connector
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.name }})
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-cursor0 \
+            libxkbcommon-x11-0 \
+            libegl1 \
+            libgl1-mesa-glx
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build application
+        run: ${{ matrix.build_cmd }}
+        shell: ${{ matrix.os == 'windows-latest' && 'pwsh' || 'bash' }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            SSH-Connector-*.zip
+            SSH-Connector-*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
