@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ssh-connector"
+version = "0.1.0"
+description = "Cross-platform reverse SSH client with GUI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "paramiko>=3.4.0",
+    "PyQt6>=6.6.0",
+    "keyring>=24.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyinstaller>=6.0.0",
+    "pytest>=7.0.0",
+    "pytest-qt>=4.0.0",
+]
+
+[project.scripts]
+ssh-connector = "main:main"
+
+[project.gui-scripts]
+ssh-connector-gui = "main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

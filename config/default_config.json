@@ -1,0 +1,35 @@
+{
+  "server": {
+    "hostname": "",
+    "port": 22,
+    "username": ""
+  },
+  "ssh_key": {
+    "path": "",
+    "passphrase_in_keyring": false
+  },
+  "port_forwarding": {
+    "rules": []
+  },
+  "reconnect": {
+    "enabled": true,
+    "max_attempts": 0,
+    "initial_delay_seconds": 1,
+    "max_delay_seconds": 300,
+    "backoff_multiplier": 2
+  },
+  "connection": {
+    "timeout_seconds": 30,
+    "keepalive_interval_seconds": 30,
+    "keepalive_count_max": 3
+  },
+  "ui": {
+    "minimize_to_tray": true,
+    "start_minimized": false,
+    "show_notifications": true
+  },
+  "system": {
+    "start_on_boot": false,
+    "connect_on_start": false
+  }
+}

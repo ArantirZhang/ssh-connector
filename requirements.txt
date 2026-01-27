@@ -1,0 +1,4 @@
+paramiko>=3.4.0
+PyQt6>=6.6.0
+keyring>=24.0.0
+pyinstaller>=6.0.0
