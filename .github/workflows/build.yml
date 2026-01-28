@@ -149,6 +149,11 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
+      - name: Deploy Qt
+        run: |
+          cd build
+          macdeployqt ssh-connector.app -verbose=1
+
       - name: Package
         run: |
           cd build
