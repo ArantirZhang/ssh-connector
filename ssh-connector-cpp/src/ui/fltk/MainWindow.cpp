@@ -10,8 +10,8 @@
 namespace sshconn {
 
 // Window dimensions
-constexpr int WINDOW_WIDTH = 320;
-constexpr int WINDOW_HEIGHT = 240;
+constexpr int WINDOW_WIDTH = 360;
+constexpr int WINDOW_HEIGHT = 280;
 constexpr int MARGIN = 15;
 constexpr int LABEL_HEIGHT = 20;
 constexpr int INPUT_HEIGHT = 25;
@@ -104,12 +104,13 @@ void MainWindow::setupUi()
     m_remotePortSpin->textsize(12);
     y += INPUT_HEIGHT + MARGIN;
 
-    // Status label
-    m_statusLabel = new Fl_Box(MARGIN, y, contentWidth, LABEL_HEIGHT, "Disconnected");
-    m_statusLabel->align(FL_ALIGN_CENTER | FL_ALIGN_INSIDE);
+    // Status label (taller to fit error messages)
+    int statusHeight = 40;
+    m_statusLabel = new Fl_Box(MARGIN, y, contentWidth, statusHeight, "Disconnected");
+    m_statusLabel->align(FL_ALIGN_CENTER | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
     m_statusLabel->labelcolor(FL_DARK3);
-    m_statusLabel->labelsize(12);
-    y += LABEL_HEIGHT + ROW_SPACING;
+    m_statusLabel->labelsize(11);
+    y += statusHeight + ROW_SPACING;
 
     // Connect button
     int buttonWidth = 120;
@@ -243,11 +244,11 @@ void MainWindow::updateUiState(ConnectionState state, const std::string& error)
 
         case ConnectionState::Error: {
             std::string statusText = "Error: " + error;
-            // Truncate long error messages
-            if (statusText.length() > 40) {
-                statusText = statusText.substr(0, 37) + "...";
-            }
+            // Log full error to console
+            std::cerr << "Connection error: " << error << std::endl;
+            // Show full error in status (wrapped)
             m_statusLabel->copy_label(statusText.c_str());
+            m_statusLabel->tooltip(error.c_str()); // Full error on hover
             m_statusLabel->labelcolor(fl_rgb_color(220, 53, 69)); // Red
             m_connectBtn->copy_label("Connect");
             m_connectBtn->color(fl_rgb_color(0, 122, 255)); // Blue
