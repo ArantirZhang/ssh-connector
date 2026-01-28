@@ -1,0 +1,38 @@
+# Build directories
+build/
+cmake-build-*/
+
+# Qt Creator
+*.pro.user*
+*.qbs.user*
+*.moc
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+*.autosave
+.qmake.stash
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Compiled files
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.app
+
+# macOS
+.DS_Store
+*.dSYM/
+
+# Qt cache
+.qt/

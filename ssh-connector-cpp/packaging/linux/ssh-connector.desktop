@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SSH Connector
+Comment=SSH reverse tunnel client
+Exec=ssh-connector
+Icon=ssh-connector
+Categories=Network;RemoteAccess;
+Terminal=false
+StartupNotify=true
