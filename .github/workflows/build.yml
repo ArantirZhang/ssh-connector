@@ -69,9 +69,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg-cache
-          key: vcpkg-windows-x64-release-${{ hashFiles('ssh-connector-cpp/vcpkg.json') }}-v1
+          key: vcpkg-windows-x64-${{ hashFiles('ssh-connector-cpp/vcpkg.json') }}-v2
           restore-keys: |
-            vcpkg-windows-x64-release-
+            vcpkg-windows-x64-
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -84,15 +84,13 @@ jobs:
 
       - name: Install vcpkg packages
         run: |
-          vcpkg install libssh:x64-windows-release nlohmann-json:x64-windows-release
-        env:
-          VCPKG_DEFAULT_TRIPLET: x64-windows-release
+          vcpkg install --triplet x64-windows
 
       - name: Configure
         run: |
           mkdir build
           cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DVCPKG_TARGET_TRIPLET=x64-windows-release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -131,28 +129,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache Homebrew packages
-        uses: actions/cache@v4
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
         with:
-          path: |
-            ~/Library/Caches/Homebrew
-            /opt/homebrew/Cellar/qt
-            /opt/homebrew/Cellar/libssh
-            /opt/homebrew/Cellar/nlohmann-json
-            /opt/homebrew/Cellar/openssl*
-          key: brew-macos-${{ runner.arch }}-qt-libssh-v1
-          restore-keys: brew-macos-${{ runner.arch }}-
+          version: '6.6.*'
+          host: 'mac'
+          target: 'desktop'
+          cache: true
 
       - name: Install dependencies
         run: |
-          brew install qt libssh nlohmann-json || true
-          brew link --overwrite qt libssh nlohmann-json 2>/dev/null || true
+          brew install libssh nlohmann-json
 
       - name: Configure
         run: |
           mkdir build
           cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$(brew --prefix qt)
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$QT_ROOT_DIR
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -160,13 +153,13 @@ jobs:
       - name: Package
         run: |
           cd build
-          zip -r ssh-connector-macos-x64.zip ssh-connector.app
+          zip -r ssh-connector-macos-arm64.zip ssh-connector.app
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ssh-connector-macos-x64
-          path: ssh-connector-cpp/build/ssh-connector-macos-x64.zip
+          name: ssh-connector-macos-arm64
+          path: ssh-connector-cpp/build/ssh-connector-macos-arm64.zip
 
   release:
     needs: [build-linux, build-windows, build-macos]
