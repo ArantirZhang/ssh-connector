@@ -7,3 +7,7 @@ build/
 *.spec
 venv/
 .env
+ssh-connector-cpp/build-static/*
+ssh-connector-cpp/build-qt/*
+ssh-connector-cpp/build-debug/*
+*.DS_Store
