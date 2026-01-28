@@ -21,11 +21,17 @@ public:
     AppConfig& config() { return m_config; }
     const AppConfig& config() const { return m_config; }
 
+    // Set executable directory for portable key search
+    static void setExecutableDir(const std::string& dir);
+    static std::string executableDir();
+
 private:
     std::string getDefaultConfigDir() const;
     std::string expandPath(const std::string& path) const;
+    std::string findKeyFile() const;
 
     std::string m_configDir;
+    static std::string s_executableDir;
     std::string m_configPath;
     AppConfig m_config;
 };

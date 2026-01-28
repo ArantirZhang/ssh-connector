@@ -11,6 +11,19 @@ using json = nlohmann::json;
 
 namespace sshconn {
 
+// Static member initialization
+std::string ConfigManager::s_executableDir;
+
+void ConfigManager::setExecutableDir(const std::string& dir)
+{
+    s_executableDir = dir;
+}
+
+std::string ConfigManager::executableDir()
+{
+    return s_executableDir;
+}
+
 ConfigManager::ConfigManager(const std::string& configDir)
     : m_configDir(configDir.empty() ? getDefaultConfigDir() : configDir)
     , m_configPath(m_configDir + "/" + CONFIG_FILENAME)
@@ -62,9 +75,40 @@ std::string ConfigManager::expandPath(const std::string& path) const
     return path;
 }
 
+std::string ConfigManager::findKeyFile() const
+{
+    const char* keyName = "tunnel_key";
+
+    // 1. Check executable directory first (for portable deployment)
+    if (!s_executableDir.empty()) {
+        fs::path exeKey = fs::path(s_executableDir) / keyName;
+        if (fs::exists(exeKey)) {
+            std::cout << "Found SSH key in executable directory: " << exeKey.string() << std::endl;
+            return exeKey.string();
+        }
+    }
+
+    // 2. Check current working directory
+    fs::path cwdKey = fs::current_path() / keyName;
+    if (fs::exists(cwdKey)) {
+        std::cout << "Found SSH key in current directory: " << cwdKey.string() << std::endl;
+        return cwdKey.string();
+    }
+
+    // 3. Check config directory
+    fs::path configKey = fs::path(m_configDir) / keyName;
+    if (fs::exists(configKey)) {
+        std::cout << "Found SSH key in config directory: " << configKey.string() << std::endl;
+        return configKey.string();
+    }
+
+    // 4. Fall back to default path (~/.ssh/tunnel_key)
+    return expandPath(ServerConfig::SSH_KEY_PATH);
+}
+
 std::string ConfigManager::sshKeyPath() const
 {
-    return expandPath(ServerConfig::SSH_KEY_PATH);
+    return findKeyFile();
 }
 
 AppConfig ConfigManager::load()
