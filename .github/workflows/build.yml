@@ -129,6 +129,47 @@ jobs:
           name: ssh-connector-windows-x64
           path: ssh-connector-cpp/ssh-connector-windows-x64.zip
 
+  build-windows7:
+    runs-on: windows-2019
+    name: Build (Windows 7 x64 FLTK)
+    if: github.event.inputs.ui_toolkit != 'Qt'
+    defaults:
+      run:
+        working-directory: ssh-connector-cpp
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup vcpkg binary cache
+        run: New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/vcpkg-cache"
+        working-directory: ${{ github.workspace }}
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-cache
+          key: vcpkg-windows7-x64-fltk-${{ hashFiles('ssh-connector-cpp/vcpkg.json') }}-v1
+
+      - name: Configure
+        run: |
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DUI_TOOLKIT=FLTK -DBUILD_STATIC=ON -DVCPKG_TARGET_TRIPLET=x64-windows-static -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DVCPKG_MANIFEST_FEATURES=fltk -DCMAKE_CXX_FLAGS="/D_WIN32_WINNT=0x0601"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package
+        run: |
+          cd build/Release
+          Compress-Archive -Path * -DestinationPath ../../ssh-connector-windows7-x64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-connector-windows7-x64
+          path: ssh-connector-cpp/ssh-connector-windows7-x64.zip
+
   build-macos:
     runs-on: macos-latest
     name: Build (macOS ${{ github.event.inputs.ui_toolkit || 'FLTK' }})
@@ -188,7 +229,7 @@ jobs:
           path: ssh-connector-cpp/build/ssh-connector-macos-arm64.zip
 
   release:
-    needs: [build-linux, build-windows, build-macos]
+    needs: [build-linux, build-windows, build-windows7, build-macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
