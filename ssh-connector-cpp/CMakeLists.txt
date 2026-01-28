@@ -1,6 +1,27 @@
 cmake_minimum_required(VERSION 3.16)
 project(ssh-connector VERSION 1.0.0 LANGUAGES CXX)
 
+# Cross-compilation support
+if(CMAKE_CROSSCOMPILING)
+    message(STATUS "Cross-compiling for ${CMAKE_SYSTEM_NAME} (${CMAKE_SYSTEM_PROCESSOR})")
+
+    # QT_HOST_PATH is required for Qt's moc, rcc, uic tools when cross-compiling
+    if(NOT DEFINED QT_HOST_PATH AND NOT DEFINED ENV{QT_HOST_PATH})
+        message(FATAL_ERROR
+            "QT_HOST_PATH must be set for cross-compilation.\n"
+            "Set via -DQT_HOST_PATH=... or export QT_HOST_PATH=...\n"
+            "Example: export QT_HOST_PATH=/opt/homebrew/opt/qt@6"
+        )
+    endif()
+
+    # Use environment variable if CMake variable not set
+    if(DEFINED ENV{QT_HOST_PATH} AND NOT DEFINED QT_HOST_PATH)
+        set(QT_HOST_PATH "$ENV{QT_HOST_PATH}" CACHE PATH "Path to host Qt installation")
+    endif()
+
+    message(STATUS "Using host Qt from: ${QT_HOST_PATH}")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -152,6 +173,18 @@ elseif(WIN32)
     set_target_properties(${PROJECT_NAME} PROPERTIES
         WIN32_EXECUTABLE TRUE
     )
+    # Optimize for size in Release builds
+    if(MSVC)
+        target_compile_options(${PROJECT_NAME} PRIVATE
+            $<$<CONFIG:Release>:/O1>      # Optimize for size
+            $<$<CONFIG:Release>:/GL>      # Whole program optimization
+        )
+        target_link_options(${PROJECT_NAME} PRIVATE
+            $<$<CONFIG:Release>:/LTCG>    # Link-time code generation
+            $<$<CONFIG:Release>:/OPT:REF> # Remove unreferenced code
+            $<$<CONFIG:Release>:/OPT:ICF> # Identical COMDAT folding
+        )
+    endif()
 endif()
 
 # Install rules

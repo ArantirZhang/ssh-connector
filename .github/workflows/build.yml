@@ -1,12 +1,9 @@
-name: Build
+name: Release
 
 on:
   push:
-    branches: [main, master]
     tags:
       - 'v*'
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
 
 jobs:
@@ -58,8 +55,23 @@ jobs:
     defaults:
       run:
         working-directory: ssh-connector-cpp
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup vcpkg binary cache
+        run: |
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/vcpkg-cache"
+        working-directory: ${{ github.workspace }}
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-cache
+          key: vcpkg-windows-x64-release-${{ hashFiles('ssh-connector-cpp/vcpkg.json') }}-v1
+          restore-keys: |
+            vcpkg-windows-x64-release-
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -68,24 +80,34 @@ jobs:
           host: 'windows'
           target: 'desktop'
           arch: 'win64_msvc2019_64'
+          cache: true
 
       - name: Install vcpkg packages
         run: |
-          vcpkg install libssh:x64-windows nlohmann-json:x64-windows
+          vcpkg install libssh:x64-windows-release nlohmann-json:x64-windows-release
+        env:
+          VCPKG_DEFAULT_TRIPLET: x64-windows-release
 
       - name: Configure
         run: |
           mkdir build
           cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DVCPKG_TARGET_TRIPLET=x64-windows-release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Deploy Qt
+      - name: Deploy Qt (minimal)
         run: |
           cd build/Release
-          windeployqt ssh-connector.exe
+          windeployqt ssh-connector.exe `
+            --release `
+            --no-translations `
+            --no-system-d3d-compiler `
+            --no-opengl-sw `
+            --no-compiler-runtime
+          # Remove unnecessary plugins
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue iconengines, imageformats/qgif.dll, imageformats/qico.dll, imageformats/qjpeg.dll, imageformats/qsvg.dll, imageformats/qtiff.dll, imageformats/qwebp.dll, networkinformation, tls
 
       - name: Package
         run: |
@@ -103,12 +125,28 @@ jobs:
     defaults:
       run:
         working-directory: ssh-connector-cpp
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache Homebrew packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+            /opt/homebrew/Cellar/qt
+            /opt/homebrew/Cellar/libssh
+            /opt/homebrew/Cellar/nlohmann-json
+            /opt/homebrew/Cellar/openssl*
+          key: brew-macos-${{ runner.arch }}-qt-libssh-v1
+          restore-keys: brew-macos-${{ runner.arch }}-
+
       - name: Install dependencies
         run: |
-          brew install qt libssh nlohmann-json
+          brew install qt libssh nlohmann-json || true
+          brew link --overwrite qt libssh nlohmann-json 2>/dev/null || true
 
       - name: Configure
         run: |
@@ -117,7 +155,7 @@ jobs:
           cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$(brew --prefix qt)
 
       - name: Build
-        run: cmake --build build --parallel
+        run: cmake --build build --config Release --parallel
 
       - name: Package
         run: |
@@ -133,16 +171,15 @@ jobs:
   release:
     needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
           merge-multiple: true
 
       - uses: softprops/action-gh-release@v1
         with:
-          files: artifacts/*
+          files: |
+            *.zip
+            *.tar.gz
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
