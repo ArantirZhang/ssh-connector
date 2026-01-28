@@ -1,6 +1,8 @@
 #include "TunnelHandler.h"
 
-#include <QDebug>
+#include <iostream>
+#include <chrono>
+#include <cstring>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -17,9 +19,8 @@
 
 namespace sshconn {
 
-TunnelHandler::TunnelHandler(ssh_session session, int localPort, int remotePort, QObject* parent)
-    : QThread(parent)
-    , m_session(session)
+TunnelHandler::TunnelHandler(ssh_session session, int localPort, int remotePort)
+    : m_session(session)
     , m_localPort(localPort)
     , m_remotePort(remotePort)
 {
@@ -28,12 +29,28 @@ TunnelHandler::TunnelHandler(ssh_session session, int localPort, int remotePort,
 TunnelHandler::~TunnelHandler()
 {
     stop();
-    wait();
+    join();
+}
+
+void TunnelHandler::start()
+{
+    if (m_thread.joinable()) {
+        return; // Already running
+    }
+    m_stopRequested.store(false);
+    m_thread = std::thread(&TunnelHandler::run, this);
 }
 
 void TunnelHandler::stop()
 {
     m_stopRequested.store(true);
+}
+
+void TunnelHandler::join()
+{
+    if (m_thread.joinable()) {
+        m_thread.join();
+    }
 }
 
 int TunnelHandler::connectToLocalPort()
@@ -44,7 +61,7 @@ int TunnelHandler::connectToLocalPort()
     }
 
     struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
+    std::memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(m_localPort);
     addr.sin_addr.s_addr = inet_addr("127.0.0.1");
@@ -106,7 +123,7 @@ void TunnelHandler::forwardData(ssh_channel channel, int localSocket)
         }
 
         // Small sleep to avoid busy-waiting
-        QThread::msleep(1);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
     // Cleanup
@@ -128,14 +145,18 @@ void TunnelHandler::run()
     // Request remote port forwarding
     int rc = ssh_channel_listen_forward(m_session, "127.0.0.1", m_remotePort, nullptr);
     if (rc != SSH_OK) {
-        QString error = QString("Failed to request port forward: %1").arg(ssh_get_error(m_session));
-        emit tunnelError(error);
+        std::string error = "Failed to request port forward: " + std::string(ssh_get_error(m_session));
+        if (m_errorCallback) {
+            m_errorCallback(error);
+        }
         m_running.store(false);
         return;
     }
 
-    emit tunnelStarted(m_remotePort);
-    qInfo() << "Reverse tunnel started: remote:" << m_remotePort << "-> local:" << m_localPort;
+    if (m_startedCallback) {
+        m_startedCallback(m_remotePort);
+    }
+    std::cout << "Reverse tunnel started: remote:" << m_remotePort << " -> local:" << m_localPort << std::endl;
 
     // Accept loop
     while (!m_stopRequested.load()) {
@@ -152,7 +173,7 @@ void TunnelHandler::run()
         // Connect to local port
         int localSocket = connectToLocalPort();
         if (localSocket < 0) {
-            qWarning() << "Failed to connect to local port" << m_localPort;
+            std::cerr << "Failed to connect to local port " << m_localPort << std::endl;
             ssh_channel_close(channel);
             ssh_channel_free(channel);
             continue;
@@ -167,8 +188,10 @@ void TunnelHandler::run()
     ssh_channel_cancel_forward(m_session, "127.0.0.1", m_remotePort);
 
     m_running.store(false);
-    emit tunnelStopped(m_remotePort);
-    qInfo() << "Reverse tunnel stopped: remote:" << m_remotePort;
+    if (m_stoppedCallback) {
+        m_stoppedCallback(m_remotePort);
+    }
+    std::cout << "Reverse tunnel stopped: remote:" << m_remotePort << std::endl;
 }
 
 } // namespace sshconn

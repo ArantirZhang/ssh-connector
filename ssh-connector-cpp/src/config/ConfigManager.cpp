@@ -1,90 +1,113 @@
 #include "ConfigManager.h"
 
-#include <QDir>
-#include <QFile>
-#include <QStandardPaths>
-#include <QJsonDocument>
-#include <QJsonObject>
-
+#include <nlohmann/json.hpp>
+#include <filesystem>
 #include <fstream>
+#include <iostream>
+#include <cstdlib>
+
+namespace fs = std::filesystem;
+using json = nlohmann::json;
 
 namespace sshconn {
 
-ConfigManager::ConfigManager(const QString& configDir)
-    : m_configDir(configDir.isEmpty() ? getDefaultConfigDir() : configDir)
+ConfigManager::ConfigManager(const std::string& configDir)
+    : m_configDir(configDir.empty() ? getDefaultConfigDir() : configDir)
     , m_configPath(m_configDir + "/" + CONFIG_FILENAME)
 {
 }
 
-QString ConfigManager::getDefaultConfigDir() const
+std::string ConfigManager::getDefaultConfigDir() const
 {
-#ifdef Q_OS_WIN
-    QString base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-#elif defined(Q_OS_MACOS)
-    QString base = QDir::homePath() + "/Library/Application Support";
+#ifdef _WIN32
+    const char* appdata = std::getenv("APPDATA");
+    if (appdata) {
+        return std::string(appdata) + "/ssh-connector";
+    }
+    return "./ssh-connector";
+#elif defined(__APPLE__)
+    const char* home = std::getenv("HOME");
+    if (home) {
+        return std::string(home) + "/Library/Application Support/ssh-connector";
+    }
+    return "./ssh-connector";
 #else
     // Linux - use XDG_CONFIG_HOME or fallback to ~/.config
-    QString base = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
-#endif
-    return base + "/ssh-connector";
-}
-
-QString ConfigManager::expandPath(const QString& path) const
-{
-    QString result = path;
-    if (result.startsWith("~")) {
-        result.replace(0, 1, QDir::homePath());
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    if (xdg) {
+        return std::string(xdg) + "/ssh-connector";
     }
-    return result;
+    const char* home = std::getenv("HOME");
+    if (home) {
+        return std::string(home) + "/.config/ssh-connector";
+    }
+    return "./ssh-connector";
+#endif
 }
 
-QString ConfigManager::sshKeyPath() const
+std::string ConfigManager::expandPath(const std::string& path) const
+{
+    if (path.empty() || path[0] != '~') {
+        return path;
+    }
+    const char* home = std::getenv("HOME");
+#ifdef _WIN32
+    if (!home) {
+        home = std::getenv("USERPROFILE");
+    }
+#endif
+    if (home) {
+        return std::string(home) + path.substr(1);
+    }
+    return path;
+}
+
+std::string ConfigManager::sshKeyPath() const
 {
     return expandPath(ServerConfig::SSH_KEY_PATH);
 }
 
 AppConfig ConfigManager::load()
 {
-    QFile file(m_configPath);
-    if (!file.exists()) {
+    if (!fs::exists(m_configPath)) {
         return m_config;
     }
 
-    if (!file.open(QIODevice::ReadOnly)) {
-        qWarning("Failed to open config file: %s", qPrintable(m_configPath));
+    std::ifstream file(m_configPath);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open config file: " << m_configPath << std::endl;
         return m_config;
     }
 
-    QByteArray data = file.readAll();
-    file.close();
+    try {
+        json root = json::parse(file);
 
-    QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+        // Load tunnel config
+        if (root.contains("tunnel")) {
+            const auto& tunnelObj = root["tunnel"];
+            if (tunnelObj.contains("local_port")) {
+                m_config.tunnel.localPort = tunnelObj["local_port"].get<int>();
+            }
+            if (tunnelObj.contains("remote_port")) {
+                m_config.tunnel.remotePort = tunnelObj["remote_port"].get<int>();
+            }
+            if (tunnelObj.contains("enabled")) {
+                m_config.tunnel.enabled = tunnelObj["enabled"].get<bool>();
+            }
+        }
 
-    if (parseError.error != QJsonParseError::NoError) {
-        qWarning("JSON parse error: %s", qPrintable(parseError.errorString()));
-        return m_config;
-    }
-
-    QJsonObject root = doc.object();
-
-    // Load tunnel config
-    if (root.contains("tunnel")) {
-        QJsonObject tunnelObj = root["tunnel"].toObject();
-        m_config.tunnel.localPort = tunnelObj["local_port"].toInt(m_config.tunnel.localPort);
-        m_config.tunnel.remotePort = tunnelObj["remote_port"].toInt(m_config.tunnel.remotePort);
-        m_config.tunnel.enabled = tunnelObj["enabled"].toBool(m_config.tunnel.enabled);
-    }
-
-    // Load reconnect settings
-    if (root.contains("auto_reconnect")) {
-        m_config.autoReconnect = root["auto_reconnect"].toBool(m_config.autoReconnect);
-    }
-    if (root.contains("reconnect_delay")) {
-        m_config.reconnectDelay = root["reconnect_delay"].toDouble(m_config.reconnectDelay);
-    }
-    if (root.contains("max_reconnect_delay")) {
-        m_config.maxReconnectDelay = root["max_reconnect_delay"].toDouble(m_config.maxReconnectDelay);
+        // Load reconnect settings
+        if (root.contains("auto_reconnect")) {
+            m_config.autoReconnect = root["auto_reconnect"].get<bool>();
+        }
+        if (root.contains("reconnect_delay")) {
+            m_config.reconnectDelay = root["reconnect_delay"].get<double>();
+        }
+        if (root.contains("max_reconnect_delay")) {
+            m_config.maxReconnectDelay = root["max_reconnect_delay"].get<double>();
+        }
+    } catch (const json::exception& e) {
+        std::cerr << "JSON parse error: " << e.what() << std::endl;
     }
 
     return m_config;
@@ -93,32 +116,34 @@ AppConfig ConfigManager::load()
 void ConfigManager::save()
 {
     // Ensure config directory exists
-    QDir dir(m_configDir);
-    if (!dir.exists()) {
-        dir.mkpath(".");
+    fs::path dirPath(m_configDir);
+    if (!fs::exists(dirPath)) {
+        std::error_code ec;
+        fs::create_directories(dirPath, ec);
+        if (ec) {
+            std::cerr << "Failed to create config directory: " << m_configDir << std::endl;
+            return;
+        }
     }
 
-    QJsonObject tunnelObj;
+    json tunnelObj;
     tunnelObj["local_port"] = m_config.tunnel.localPort;
     tunnelObj["remote_port"] = m_config.tunnel.remotePort;
     tunnelObj["enabled"] = m_config.tunnel.enabled;
 
-    QJsonObject root;
+    json root;
     root["tunnel"] = tunnelObj;
     root["auto_reconnect"] = m_config.autoReconnect;
     root["reconnect_delay"] = m_config.reconnectDelay;
     root["max_reconnect_delay"] = m_config.maxReconnectDelay;
 
-    QJsonDocument doc(root);
-
-    QFile file(m_configPath);
-    if (!file.open(QIODevice::WriteOnly)) {
-        qWarning("Failed to save config file: %s", qPrintable(m_configPath));
+    std::ofstream file(m_configPath);
+    if (!file.is_open()) {
+        std::cerr << "Failed to save config file: " << m_configPath << std::endl;
         return;
     }
 
-    file.write(doc.toJson(QJsonDocument::Indented));
-    file.close();
+    file << root.dump(4);
 }
 
 } // namespace sshconn

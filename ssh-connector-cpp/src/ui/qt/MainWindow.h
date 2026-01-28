@@ -1,15 +1,14 @@
-#ifndef MAIN_WINDOW_H
-#define MAIN_WINDOW_H
+#ifndef MAIN_WINDOW_QT_H
+#define MAIN_WINDOW_QT_H
 
-#include "../core/SSHClient.h"
-#include "../config/ConfigManager.h"
+#include "../../core/SSHClient.h"
+#include "../../config/ConfigManager.h"
 
 #include <QMainWindow>
 #include <QLabel>
 #include <QSpinBox>
 #include <QPushButton>
 #include <memory>
-#include <thread>
 #include <atomic>
 
 namespace sshconn {
@@ -26,14 +25,14 @@ protected:
 
 private slots:
     void toggleConnection();
-    void onStateChanged(ConnectionState state, const QString& error);
+    void onStateChanged(ConnectionState state, const std::string& error);
 
 private:
     void setupUi();
     void connectSignals();
     void doConnect();
     void doDisconnect();
-    void updateUiState(ConnectionState state, const QString& error);
+    void updateUiState(ConnectionState state, const std::string& error);
 
     // Configuration
     ConfigManager m_configManager;
@@ -54,4 +53,4 @@ private:
 
 } // namespace sshconn
 
-#endif // MAIN_WINDOW_H
+#endif // MAIN_WINDOW_QT_H

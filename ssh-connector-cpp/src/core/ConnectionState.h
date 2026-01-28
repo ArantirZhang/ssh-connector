@@ -1,7 +1,7 @@
 #ifndef CONNECTION_STATE_H
 #define CONNECTION_STATE_H
 
-#include <QString>
+#include <string>
 
 namespace sshconn {
 
@@ -12,7 +12,7 @@ enum class ConnectionState {
     Error
 };
 
-inline QString connectionStateToString(ConnectionState state)
+inline std::string connectionStateToString(ConnectionState state)
 {
     switch (state) {
         case ConnectionState::Disconnected: return "Disconnected";

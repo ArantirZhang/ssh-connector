@@ -5,35 +5,52 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      ui_toolkit:
+        description: 'UI Toolkit to build'
+        required: true
+        default: 'FLTK'
+        type: choice
+        options:
+          - FLTK
+          - Qt
+
+env:
+  # Default to FLTK for tag pushes
+  UI_TOOLKIT: ${{ github.event.inputs.ui_toolkit || 'FLTK' }}
 
 jobs:
   build-linux:
     runs-on: ubuntu-22.04
-    name: Build (Linux)
+    name: Build (Linux ${{ github.event.inputs.ui_toolkit || 'FLTK' }})
     defaults:
       run:
         working-directory: ssh-connector-cpp
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install FLTK dependencies
+        if: env.UI_TOOLKIT == 'FLTK'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            cmake \
-            pkg-config \
-            libgl1-mesa-dev \
-            libxkbcommon-dev \
-            qt6-base-dev \
-            libqt6opengl6-dev \
-            libssh-dev \
-            nlohmann-json3-dev
+            cmake pkg-config \
+            libfltk1.3-dev libssh-dev nlohmann-json3-dev \
+            libx11-dev libxext-dev libxft-dev libxinerama-dev
+
+      - name: Install Qt dependencies
+        if: env.UI_TOOLKIT == 'Qt'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake pkg-config \
+            qt6-base-dev libqt6opengl6-dev \
+            libssh-dev nlohmann-json3-dev
 
       - name: Configure
         run: |
-          mkdir build
-          cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DUI_TOOLKIT=${{ env.UI_TOOLKIT }}
 
       - name: Build
         run: cmake --build build --parallel
@@ -51,7 +68,7 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
-    name: Build (Windows)
+    name: Build (Windows ${{ github.event.inputs.ui_toolkit || 'FLTK' }})
     defaults:
       run:
         working-directory: ssh-connector-cpp
@@ -61,19 +78,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup vcpkg binary cache
-        run: |
-          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/vcpkg-cache"
+        run: New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/vcpkg-cache"
         working-directory: ${{ github.workspace }}
 
       - name: Cache vcpkg packages
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg-cache
-          key: vcpkg-windows-x64-${{ hashFiles('ssh-connector-cpp/vcpkg.json') }}-v2
-          restore-keys: |
-            vcpkg-windows-x64-
+          key: vcpkg-windows-x64-${{ env.UI_TOOLKIT }}-${{ hashFiles('ssh-connector-cpp/vcpkg.json') }}-v1
 
       - name: Install Qt
+        if: env.UI_TOOLKIT == 'Qt'
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.6.*'
@@ -82,34 +97,39 @@ jobs:
           arch: 'win64_msvc2019_64'
           cache: true
 
-      - name: Install vcpkg packages
-        run: |
-          vcpkg install --triplet x64-windows
+      - name: Install vcpkg packages (FLTK)
+        if: env.UI_TOOLKIT == 'FLTK'
+        run: vcpkg install fltk libssh nlohmann-json --triplet x64-windows-static
 
-      - name: Configure
+      - name: Install vcpkg packages (Qt)
+        if: env.UI_TOOLKIT == 'Qt'
+        run: vcpkg install libssh nlohmann-json --triplet x64-windows
+
+      - name: Configure (FLTK)
+        if: env.UI_TOOLKIT == 'FLTK'
         run: |
-          mkdir build
-          cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DUI_TOOLKIT=FLTK -DBUILD_STATIC=ON -DVCPKG_TARGET_TRIPLET=x64-windows-static -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+      - name: Configure (Qt)
+        if: env.UI_TOOLKIT == 'Qt'
+        run: |
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DUI_TOOLKIT=Qt -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Deploy Qt (minimal)
+      - name: Deploy Qt
+        if: env.UI_TOOLKIT == 'Qt'
         run: |
           cd build/Release
-          windeployqt ssh-connector.exe `
-            --release `
-            --no-translations `
-            --no-system-d3d-compiler `
-            --no-opengl-sw `
-            --no-compiler-runtime
-          # Remove unnecessary plugins
-          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue iconengines, imageformats/qgif.dll, imageformats/qico.dll, imageformats/qjpeg.dll, imageformats/qsvg.dll, imageformats/qtiff.dll, imageformats/qwebp.dll, networkinformation, tls
+          windeployqt ssh-connector.exe --release --no-translations --no-system-d3d-compiler --no-opengl-sw
 
       - name: Package
         run: |
-          Compress-Archive -Path build/Release/* -DestinationPath ssh-connector-windows-x64.zip
+          cd build/Release
+          Compress-Archive -Path * -DestinationPath ../../ssh-connector-windows-x64.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -119,40 +139,50 @@ jobs:
 
   build-macos:
     runs-on: macos-latest
-    name: Build (macOS)
+    name: Build (macOS ${{ github.event.inputs.ui_toolkit || 'FLTK' }})
     defaults:
       run:
         working-directory: ssh-connector-cpp
     env:
       HOMEBREW_NO_AUTO_UPDATE: 1
       HOMEBREW_NO_INSTALL_CLEANUP: 1
-      HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache Homebrew downloads
+      - name: Cache Homebrew
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/Homebrew/downloads
-          key: brew-downloads-${{ runner.arch }}-qt-libssh-json-v1
+          key: brew-${{ runner.arch }}-${{ env.UI_TOOLKIT }}-v1
 
-      - name: Install dependencies
-        run: |
-          brew install qt libssh nlohmann-json
+      - name: Install FLTK dependencies
+        if: env.UI_TOOLKIT == 'FLTK'
+        run: brew install fltk libssh nlohmann-json
 
-      - name: Configure
+      - name: Install Qt dependencies
+        if: env.UI_TOOLKIT == 'Qt'
+        run: brew install qt libssh nlohmann-json
+
+      - name: Configure (FLTK)
+        if: env.UI_TOOLKIT == 'FLTK'
         run: |
-          mkdir build
-          cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$(brew --prefix qt)
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DUI_TOOLKIT=FLTK
+
+      - name: Configure (Qt)
+        if: env.UI_TOOLKIT == 'Qt'
+        run: |
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DUI_TOOLKIT=Qt -DCMAKE_PREFIX_PATH=$(brew --prefix qt)
 
       - name: Build
-        run: cmake --build build --config Release --parallel
+        run: cmake --build build --parallel
 
       - name: Deploy Qt
+        if: env.UI_TOOLKIT == 'Qt'
         run: |
           cd build
-          macdeployqt ssh-connector.app -verbose=1
+          macdeployqt ssh-connector.app
 
       - name: Package
         run: |

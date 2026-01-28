@@ -1,45 +1,55 @@
 cmake_minimum_required(VERSION 3.16)
 project(ssh-connector VERSION 1.0.0 LANGUAGES CXX)
 
-# Cross-compilation support
-if(CMAKE_CROSSCOMPILING)
-    message(STATUS "Cross-compiling for ${CMAKE_SYSTEM_NAME} (${CMAKE_SYSTEM_PROCESSOR})")
-
-    # QT_HOST_PATH is required for Qt's moc, rcc, uic tools when cross-compiling
-    if(NOT DEFINED QT_HOST_PATH AND NOT DEFINED ENV{QT_HOST_PATH})
-        message(FATAL_ERROR
-            "QT_HOST_PATH must be set for cross-compilation.\n"
-            "Set via -DQT_HOST_PATH=... or export QT_HOST_PATH=...\n"
-            "Example: export QT_HOST_PATH=/opt/homebrew/opt/qt@6"
-        )
-    endif()
-
-    # Use environment variable if CMake variable not set
-    if(DEFINED ENV{QT_HOST_PATH} AND NOT DEFINED QT_HOST_PATH)
-        set(QT_HOST_PATH "$ENV{QT_HOST_PATH}" CACHE PATH "Path to host Qt installation")
-    endif()
-
-    message(STATUS "Using host Qt from: ${QT_HOST_PATH}")
-endif()
-
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-set(CMAKE_AUTOUIC ON)
 
-# Find Qt - prefer Qt6, fallback to Qt5
-find_package(Qt6 QUIET COMPONENTS Core Widgets Network)
-if(NOT Qt6_FOUND)
-    find_package(Qt5 REQUIRED COMPONENTS Core Widgets Network)
-    set(QT_VERSION_MAJOR 5)
-    message(STATUS "Using Qt5")
-else()
-    set(QT_VERSION_MAJOR 6)
-    message(STATUS "Using Qt6")
+# UI toolkit selection
+set(UI_TOOLKIT "FLTK" CACHE STRING "UI toolkit to use (Qt or FLTK)")
+set_property(CACHE UI_TOOLKIT PROPERTY STRINGS "Qt" "FLTK")
+message(STATUS "Building with UI toolkit: ${UI_TOOLKIT}")
+
+# Static linking option
+option(BUILD_STATIC "Build with static libraries" OFF)
+if(BUILD_STATIC)
+    message(STATUS "Static linking enabled")
+    if(WIN32)
+        set(CMAKE_FIND_LIBRARY_SUFFIXES .lib .a)
+    else()
+        set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
+    endif()
+    if(NOT DEFINED VCPKG_TARGET_TRIPLET)
+        if(APPLE)
+            if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+                set(VCPKG_TARGET_TRIPLET "arm64-osx" CACHE STRING "")
+            else()
+                set(VCPKG_TARGET_TRIPLET "x64-osx" CACHE STRING "")
+            endif()
+        elseif(WIN32)
+            set(VCPKG_TARGET_TRIPLET "x64-windows-static" CACHE STRING "")
+        else()
+            set(VCPKG_TARGET_TRIPLET "x64-linux" CACHE STRING "")
+        endif()
+    endif()
 endif()
 
-# Find libssh - try find_package first (vcpkg), then pkg-config
+# Common source files (core logic)
+set(COMMON_SOURCES
+    src/config/Config.cpp
+    src/config/ConfigManager.cpp
+    src/core/SSHClient.cpp
+    src/core/TunnelHandler.cpp
+)
+
+set(COMMON_HEADERS
+    src/config/Config.h
+    src/config/ConfigManager.h
+    src/core/ConnectionState.h
+    src/core/SSHClient.h
+    src/core/TunnelHandler.h
+)
+
+# Find libssh
 find_package(libssh QUIET CONFIG)
 if(libssh_FOUND)
     message(STATUS "Found libssh via find_package")
@@ -54,7 +64,7 @@ else()
     endif()
 endif()
 
-# nlohmann/json - header-only (try find_package first, fallback to pkg-config)
+# nlohmann/json
 find_package(nlohmann_json 3.0 QUIET CONFIG)
 if(NOT nlohmann_json_FOUND)
     find_package(PkgConfig QUIET)
@@ -65,7 +75,6 @@ if(NOT nlohmann_json_FOUND)
         set(NLOHMANN_JSON_TARGET "")
         set(NLOHMANN_JSON_INCLUDE ${NLOHMANN_JSON_INCLUDE_DIRS})
     else()
-        # Try system include path
         find_path(NLOHMANN_JSON_INCLUDE_DIR nlohmann/json.hpp
             PATHS /opt/homebrew/include /usr/local/include /usr/include
         )
@@ -81,33 +90,121 @@ else()
     set(NLOHMANN_JSON_INCLUDE "")
 endif()
 
-# Source files
-set(SOURCES
-    src/main.cpp
-    src/config/Config.cpp
-    src/config/ConfigManager.cpp
-    src/core/SSHClient.cpp
-    src/core/TunnelHandler.cpp
-    src/ui/MainWindow.cpp
-)
+# ============================================================================
+# Qt Build
+# ============================================================================
+if(UI_TOOLKIT STREQUAL "Qt")
+    set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTORCC ON)
+    set(CMAKE_AUTOUIC ON)
 
-set(HEADERS
-    src/config/Config.h
-    src/config/ConfigManager.h
-    src/core/ConnectionState.h
-    src/core/SSHClient.h
-    src/core/TunnelHandler.h
-    src/ui/MainWindow.h
-)
+    # Find Qt
+    find_package(Qt6 QUIET COMPONENTS Core Widgets Network)
+    if(NOT Qt6_FOUND)
+        find_package(Qt5 REQUIRED COMPONENTS Core Widgets Network)
+        set(QT_VERSION_MAJOR 5)
+        message(STATUS "Using Qt5")
+    else()
+        set(QT_VERSION_MAJOR 6)
+        message(STATUS "Using Qt6")
+    endif()
 
-# Platform-specific resources
-if(WIN32)
-    set(APP_ICON_RESOURCE "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.rc")
-    list(APPEND SOURCES ${APP_ICON_RESOURCE})
+    set(SOURCES
+        ${COMMON_SOURCES}
+        src/main_qt.cpp
+        src/ui/qt/MainWindow.cpp
+    )
+
+    set(HEADERS
+        ${COMMON_HEADERS}
+        src/ui/qt/MainWindow.h
+    )
+
+    # Create executable
+    if(WIN32)
+        add_executable(${PROJECT_NAME} WIN32 ${SOURCES} ${HEADERS})
+    elseif(APPLE)
+        add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SOURCES} ${HEADERS})
+    else()
+        add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+    endif()
+
+    # Link Qt
+    if(QT_VERSION_MAJOR EQUAL 6)
+        target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Core Qt6::Widgets Qt6::Network)
+    else()
+        target_link_libraries(${PROJECT_NAME} PRIVATE Qt5::Core Qt5::Widgets Qt5::Network)
+    endif()
+
+# ============================================================================
+# FLTK Build
+# ============================================================================
+elseif(UI_TOOLKIT STREQUAL "FLTK")
+    # Find FLTK
+    find_package(FLTK QUIET CONFIG)
+    if(FLTK_FOUND)
+        message(STATUS "Found FLTK via find_package (CONFIG)")
+        set(FLTK_TARGET fltk::fltk)
+    else()
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(FLTK fltk)
+            if(FLTK_FOUND)
+                message(STATUS "Found FLTK via pkg-config")
+                set(FLTK_TARGET "")
+            endif()
+        endif()
+        if(NOT FLTK_FOUND)
+            find_package(FLTK REQUIRED)
+            if(FLTK_FOUND)
+                message(STATUS "Found FLTK via FindFLTK module")
+                set(FLTK_TARGET "")
+            endif()
+        endif()
+    endif()
+
+    set(SOURCES
+        ${COMMON_SOURCES}
+        src/main_fltk.cpp
+        src/ui/fltk/MainWindow.cpp
+    )
+
+    set(HEADERS
+        ${COMMON_HEADERS}
+        src/ui/fltk/MainWindow.h
+    )
+
+    # Create executable
+    if(WIN32)
+        add_executable(${PROJECT_NAME} WIN32 ${SOURCES} ${HEADERS})
+    elseif(APPLE)
+        add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SOURCES} ${HEADERS})
+    else()
+        add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+    endif()
+
+    # Link FLTK
+    if(FLTK_TARGET)
+        target_link_libraries(${PROJECT_NAME} PRIVATE ${FLTK_TARGET})
+    else()
+        target_link_libraries(${PROJECT_NAME} PRIVATE ${FLTK_LIBRARIES})
+        if(FLTK_LIBRARY_DIRS)
+            target_link_directories(${PROJECT_NAME} PRIVATE ${FLTK_LIBRARY_DIRS})
+        endif()
+    endif()
+
+    # Add FLTK include dirs
+    if(NOT FLTK_TARGET AND FLTK_INCLUDE_DIRS)
+        target_include_directories(${PROJECT_NAME} PRIVATE ${FLTK_INCLUDE_DIRS})
+    endif()
+
+else()
+    message(FATAL_ERROR "Invalid UI_TOOLKIT: ${UI_TOOLKIT}. Must be 'Qt' or 'FLTK'")
 endif()
 
-# Create executable
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+# ============================================================================
+# Common configuration for both builds
+# ============================================================================
 
 # Include directories
 target_include_directories(${PROJECT_NAME} PRIVATE
@@ -124,27 +221,14 @@ if(NLOHMANN_JSON_INCLUDE)
     target_include_directories(${PROJECT_NAME} PRIVATE ${NLOHMANN_JSON_INCLUDE})
 endif()
 
-# Link libraries
-if(QT_VERSION_MAJOR EQUAL 6)
-    target_link_libraries(${PROJECT_NAME} PRIVATE
-        Qt6::Core
-        Qt6::Widgets
-        Qt6::Network
-    )
-else()
-    target_link_libraries(${PROJECT_NAME} PRIVATE
-        Qt5::Core
-        Qt5::Widgets
-        Qt5::Network
-    )
-endif()
-
 # Link libssh
 if(LIBSSH_TARGET)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${LIBSSH_TARGET})
 else()
     target_link_libraries(${PROJECT_NAME} PRIVATE ${LIBSSH_LIBRARIES})
-    target_link_directories(${PROJECT_NAME} PRIVATE ${LIBSSH_LIBRARY_DIRS})
+    if(LIBSSH_LIBRARY_DIRS)
+        target_link_directories(${PROJECT_NAME} PRIVATE ${LIBSSH_LIBRARY_DIRS})
+    endif()
 endif()
 
 # Add nlohmann_json if using find_package
@@ -169,21 +253,32 @@ if(APPLE)
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.sshconnector.app"
         MACOSX_BUNDLE_ICON_FILE app.icns
     )
+    # Link Cocoa framework (needed for both Qt and FLTK on macOS)
+    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework Cocoa")
 elseif(WIN32)
-    set_target_properties(${PROJECT_NAME} PROPERTIES
-        WIN32_EXECUTABLE TRUE
-    )
-    # Optimize for size in Release builds
+    set(APP_ICON_RESOURCE "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.rc")
+    if(EXISTS ${APP_ICON_RESOURCE})
+        target_sources(${PROJECT_NAME} PRIVATE ${APP_ICON_RESOURCE})
+    endif()
+    target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
     if(MSVC)
         target_compile_options(${PROJECT_NAME} PRIVATE
-            $<$<CONFIG:Release>:/O1>      # Optimize for size
-            $<$<CONFIG:Release>:/GL>      # Whole program optimization
+            $<$<CONFIG:Release>:/O1>
+            $<$<CONFIG:Release>:/GL>
         )
         target_link_options(${PROJECT_NAME} PRIVATE
-            $<$<CONFIG:Release>:/LTCG>    # Link-time code generation
-            $<$<CONFIG:Release>:/OPT:REF> # Remove unreferenced code
-            $<$<CONFIG:Release>:/OPT:ICF> # Identical COMDAT folding
+            $<$<CONFIG:Release>:/LTCG>
+            $<$<CONFIG:Release>:/OPT:REF>
+            $<$<CONFIG:Release>:/OPT:ICF>
         )
+    endif()
+else()
+    # Linux
+    find_package(Threads REQUIRED)
+    target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
+    if(UI_TOOLKIT STREQUAL "FLTK")
+        find_package(X11 REQUIRED)
+        target_link_libraries(${PROJECT_NAME} PRIVATE ${X11_LIBRARIES})
     endif()
 endif()
 
@@ -193,7 +288,6 @@ install(TARGETS ${PROJECT_NAME}
     RUNTIME DESTINATION bin
 )
 
-# Linux desktop file installation
 if(UNIX AND NOT APPLE)
     install(FILES packaging/linux/ssh-connector.desktop
         DESTINATION share/applications)

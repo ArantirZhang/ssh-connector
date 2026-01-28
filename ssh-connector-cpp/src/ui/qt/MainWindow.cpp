@@ -1,5 +1,5 @@
 #include "MainWindow.h"
-#include "../config/Config.h"
+#include "../../config/Config.h"
 
 #include <QApplication>
 #include <QVBoxLayout>
@@ -7,7 +7,7 @@
 #include <QGroupBox>
 #include <QCloseEvent>
 #include <QThread>
-#include <QDebug>
+#include <thread>
 
 namespace sshconn {
 
@@ -87,10 +87,13 @@ void MainWindow::connectSignals()
     QObject::connect(m_connectBtn, &QPushButton::clicked,
                      this, &MainWindow::toggleConnection);
 
-    // SSH state changes (use Qt::QueuedConnection for thread safety)
-    QObject::connect(m_sshClient.get(), &SSHClient::stateChanged,
-                     this, &MainWindow::onStateChanged,
-                     Qt::QueuedConnection);
+    // SSH state changes - use a lambda to bridge std::function callback to Qt slot
+    m_sshClient->setStateCallback([this](ConnectionState state, const std::string& error) {
+        // Use QMetaObject::invokeMethod for thread-safe slot invocation
+        QMetaObject::invokeMethod(this, [this, state, error]() {
+            onStateChanged(state, error);
+        }, Qt::QueuedConnection);
+    });
 }
 
 void MainWindow::toggleConnection()
@@ -135,12 +138,12 @@ void MainWindow::doDisconnect()
     }).detach();
 }
 
-void MainWindow::onStateChanged(ConnectionState state, const QString& error)
+void MainWindow::onStateChanged(ConnectionState state, const std::string& error)
 {
     updateUiState(state, error);
 }
 
-void MainWindow::updateUiState(ConnectionState state, const QString& error)
+void MainWindow::updateUiState(ConnectionState state, const std::string& error)
 {
     switch (state) {
         case ConnectionState::Connected:
@@ -168,7 +171,7 @@ void MainWindow::updateUiState(ConnectionState state, const QString& error)
             break;
 
         case ConnectionState::Error:
-            m_statusLabel->setText(QString("Status: Error - %1").arg(error));
+            m_statusLabel->setText(QString("Status: Error - %1").arg(QString::fromStdString(error)));
             m_statusLabel->setStyleSheet("color: red;");
             m_connectBtn->setText("Connect");
             m_connectBtn->setEnabled(true);

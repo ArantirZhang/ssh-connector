@@ -5,20 +5,24 @@
 #include "TunnelHandler.h"
 #include "../config/Config.h"
 
-#include <QObject>
-#include <QMutex>
-#include <QString>
+#include <functional>
+#include <mutex>
+#include <string>
 #include <memory>
 #include <libssh/libssh.h>
 
 namespace sshconn {
 
-class SSHClient : public QObject {
-    Q_OBJECT
-
+class SSHClient {
 public:
-    explicit SSHClient(QObject* parent = nullptr);
-    ~SSHClient() override;
+    using StateCallback = std::function<void(ConnectionState, const std::string&)>;
+
+    SSHClient();
+    ~SSHClient();
+
+    // Prevent copying
+    SSHClient(const SSHClient&) = delete;
+    SSHClient& operator=(const SSHClient&) = delete;
 
     // Connection management
     void connect();
@@ -26,7 +30,7 @@ public:
 
     // State queries
     ConnectionState state() const { return m_state; }
-    QString errorMessage() const { return m_errorMessage; }
+    std::string errorMessage() const { return m_errorMessage; }
     bool isConnected() const;
 
     // Tunnel management
@@ -36,22 +40,23 @@ public:
     // Connection health
     bool checkConnection();
 
-signals:
-    void stateChanged(sshconn::ConnectionState state, const QString& error);
+    // Callback registration
+    void setStateCallback(StateCallback cb) { m_stateCallback = std::move(cb); }
 
 private:
-    void setState(ConnectionState state, const QString& errorMessage = QString());
-    bool loadKey(const QString& keyPath);
+    void setState(ConnectionState state, const std::string& errorMessage = std::string());
+    bool loadKey(const std::string& keyPath);
     void cleanup();
     bool isTransportActive() const;
 
     ssh_session m_session = nullptr;
     ssh_key m_privateKey = nullptr;
     ConnectionState m_state = ConnectionState::Disconnected;
-    QString m_errorMessage;
-    mutable QMutex m_mutex;
+    std::string m_errorMessage;
+    mutable std::mutex m_mutex;
 
     std::unique_ptr<TunnelHandler> m_tunnelHandler;
+    StateCallback m_stateCallback;
 };
 
 } // namespace sshconn
