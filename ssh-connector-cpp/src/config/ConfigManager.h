@@ -26,6 +26,7 @@ public:
     static std::string executableDir();
 
 private:
+    std::string findConfigDir() const;
     std::string getDefaultConfigDir() const;
     std::string expandPath(const std::string& path) const;
     std::string findKeyFile() const;

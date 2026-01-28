@@ -25,9 +25,31 @@ std::string ConfigManager::executableDir()
 }
 
 ConfigManager::ConfigManager(const std::string& configDir)
-    : m_configDir(configDir.empty() ? getDefaultConfigDir() : configDir)
+    : m_configDir(configDir.empty() ? findConfigDir() : configDir)
     , m_configPath(m_configDir + "/" + CONFIG_FILENAME)
 {
+}
+
+std::string ConfigManager::findConfigDir() const
+{
+    // 1. Check executable directory first (for portable deployment)
+    if (!s_executableDir.empty()) {
+        fs::path exeConfig = fs::path(s_executableDir) / CONFIG_FILENAME;
+        if (fs::exists(exeConfig)) {
+            std::cout << "Using portable config from executable directory" << std::endl;
+            return s_executableDir;
+        }
+    }
+
+    // 2. Check current working directory
+    fs::path cwdConfig = fs::current_path() / CONFIG_FILENAME;
+    if (fs::exists(cwdConfig)) {
+        std::cout << "Using config from current directory" << std::endl;
+        return fs::current_path().string();
+    }
+
+    // 3. Fall back to platform-specific default
+    return getDefaultConfigDir();
 }
 
 std::string ConfigManager::getDefaultConfigDir() const
