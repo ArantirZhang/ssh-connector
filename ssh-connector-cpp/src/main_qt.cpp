@@ -5,8 +5,18 @@
 #include <libssh/libssh.h>
 #include <filesystem>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
+
 int main(int argc, char* argv[])
 {
+#ifdef _WIN32
+    // Initialize Winsock (required on Windows, especially Windows 7)
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+#endif
+
     // Initialize libssh
     ssh_init();
 
@@ -27,6 +37,10 @@ int main(int argc, char* argv[])
 
     // Cleanup libssh
     ssh_finalize();
+
+#ifdef _WIN32
+    WSACleanup();
+#endif
 
     return result;
 }
