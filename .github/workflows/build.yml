@@ -99,11 +99,11 @@ jobs:
 
       - name: Install vcpkg packages (FLTK)
         if: env.UI_TOOLKIT == 'FLTK'
-        run: vcpkg install fltk libssh nlohmann-json --triplet x64-windows-static
+        run: vcpkg install --triplet x64-windows-static --x-feature=fltk
 
       - name: Install vcpkg packages (Qt)
         if: env.UI_TOOLKIT == 'Qt'
-        run: vcpkg install libssh nlohmann-json --triplet x64-windows
+        run: vcpkg install --triplet x64-windows
 
       - name: Configure (FLTK)
         if: env.UI_TOOLKIT == 'FLTK'

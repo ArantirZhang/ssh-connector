@@ -2,10 +2,15 @@
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
   "name": "ssh-connector",
   "version": "1.0.0",
-  "description": "Cross-platform reverse SSH client with FLTK GUI",
+  "description": "Cross-platform reverse SSH client with FLTK/Qt GUI",
   "dependencies": [
-    "fltk",
     "libssh",
     "nlohmann-json"
-  ]
+  ],
+  "features": {
+    "fltk": {
+      "description": "FLTK UI toolkit",
+      "dependencies": ["fltk"]
+    }
+  }
 }
