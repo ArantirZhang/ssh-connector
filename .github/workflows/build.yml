@@ -10,108 +10,127 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-macos:
-    runs-on: macos-latest
-    name: Build (macOS)
+  build-linux:
+    runs-on: ubuntu-22.04
+    name: Build (Linux)
+    defaults:
+      run:
+        working-directory: ssh-connector-cpp
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            pkg-config \
+            qt6-base-dev \
+            libssh-dev \
+            nlohmann-json3-dev \
+            libgl1 \
+            libxkbcommon0
+
+      - name: Configure
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        run: |
-          pyinstaller \
-            --name "SSH Connector" \
-            --windowed \
-            --onedir \
-            --add-data "config:config" \
-            --hidden-import "paramiko" \
-            --hidden-import "PyQt6" \
-            src/main.py
-          cd dist && zip -r "../SSH-Connector-macOS.zip" "SSH Connector.app"
+        run: cmake --build build --parallel
 
-      - uses: actions/upload-artifact@v4
+      - name: Package
+        run: |
+          cd build
+          tar -czvf ssh-connector-linux-x64.tar.gz ssh-connector
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: SSH-Connector-macOS
-          path: SSH-Connector-macOS.zip
+          name: ssh-connector-linux-x64
+          path: ssh-connector-cpp/build/ssh-connector-linux-x64.tar.gz
 
   build-windows:
     runs-on: windows-latest
     name: Build (Windows)
+    defaults:
+      run:
+        working-directory: ssh-connector-cpp
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          version: '6.6.*'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2019_64'
+
+      - name: Install vcpkg packages
+        run: |
+          vcpkg install libssh:x64-windows nlohmann-json:x64-windows
+
+      - name: Configure
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Deploy Qt
+        run: |
+          cd build/Release
+          windeployqt ssh-connector.exe
+
+      - name: Package
+        run: |
+          Compress-Archive -Path build/Release/* -DestinationPath ssh-connector-windows-x64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-connector-windows-x64
+          path: ssh-connector-cpp/ssh-connector-windows-x64.zip
+
+  build-macos:
+    runs-on: macos-latest
+    name: Build (macOS)
+    defaults:
+      run:
+        working-directory: ssh-connector-cpp
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          brew install qt libssh nlohmann-json
+
+      - name: Configure
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$(brew --prefix qt)
 
       - name: Build
-        run: |
-          pyinstaller --name "SSH Connector" --windowed --onefile --add-data "config;config" --hidden-import "paramiko" --hidden-import "PyQt6" src/main.py
-          Compress-Archive -Path "dist\SSH Connector.exe" -DestinationPath "SSH-Connector-Windows.zip"
+        run: cmake --build build --parallel
 
-      - uses: actions/upload-artifact@v4
+      - name: Package
+        run: |
+          cd build
+          zip -r ssh-connector-macos-x64.zip ssh-connector.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: SSH-Connector-Windows
-          path: SSH-Connector-Windows.zip
-
-  build-linux:
-    runs-on: ubuntu-latest
-    name: Build (Linux)
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libxcb-cursor0 \
-            libxkbcommon-x11-0 \
-            libegl1 \
-            libgl1
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Build
-        run: |
-          pyinstaller \
-            --name "ssh-connector" \
-            --onefile \
-            --add-data "config:config" \
-            --hidden-import "paramiko" \
-            --hidden-import "PyQt6" \
-            src/main.py
-          cd dist && tar -czvf "../SSH-Connector-Linux.tar.gz" ssh-connector
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: SSH-Connector-Linux
-          path: SSH-Connector-Linux.tar.gz
+          name: ssh-connector-macos-x64
+          path: ssh-connector-cpp/build/ssh-connector-macos-x64.zip
 
   release:
-    needs: [build-macos, build-windows, build-linux]
+    needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
