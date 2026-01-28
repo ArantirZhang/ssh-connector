@@ -25,11 +25,12 @@ jobs:
           sudo apt-get install -y \
             cmake \
             pkg-config \
+            libgl1-mesa-dev \
+            libxkbcommon-dev \
             qt6-base-dev \
+            libqt6opengl6-dev \
             libssh-dev \
-            nlohmann-json3-dev \
-            libgl1 \
-            libxkbcommon0
+            nlohmann-json3-dev
 
       - name: Configure
         run: |
