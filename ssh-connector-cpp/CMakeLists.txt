@@ -258,7 +258,7 @@ elseif(WIN32)
     if(EXISTS ${APP_ICON_RESOURCE})
         target_sources(${PROJECT_NAME} PRIVATE ${APP_ICON_RESOURCE})
     endif()
-    target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 Crypt32)
     if(MSVC)
         target_compile_options(${PROJECT_NAME} PRIVATE
             $<$<CONFIG:Release>:/O1>
