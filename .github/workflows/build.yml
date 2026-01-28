@@ -97,19 +97,11 @@ jobs:
           arch: 'win64_msvc2019_64'
           cache: true
 
-      - name: Install vcpkg packages (FLTK)
-        if: env.UI_TOOLKIT == 'FLTK'
-        run: vcpkg install --triplet x64-windows-static --x-feature=fltk
-
-      - name: Install vcpkg packages (Qt)
-        if: env.UI_TOOLKIT == 'Qt'
-        run: vcpkg install --triplet x64-windows
-
       - name: Configure (FLTK)
         if: env.UI_TOOLKIT == 'FLTK'
         run: |
           mkdir build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DUI_TOOLKIT=FLTK -DBUILD_STATIC=ON -DVCPKG_TARGET_TRIPLET=x64-windows-static -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DUI_TOOLKIT=FLTK -DBUILD_STATIC=ON -DVCPKG_TARGET_TRIPLET=x64-windows-static -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DVCPKG_MANIFEST_FEATURES=fltk
 
       - name: Configure (Qt)
         if: env.UI_TOOLKIT == 'Qt'
